@@ -70,34 +70,43 @@ def _get(endpoint, params=None):
 def fetch_data():
     """Pull live SP tickets from Freshdesk, return processed DataFrame + aggregates."""
 
-    # Group ID
-    groups   = _get("groups")
-    grp      = next((g for g in groups if g["name"] == "Service Partner"), None)
-    if not grp:
-        raise ValueError("'Service Partner' group not found in Freshdesk.")
-    group_id = grp["id"]
+    # Group ID (optional â some Freshdesk plans restrict /groups)
+    group_id = None
+    try:
+        groups = _get("groups")
+        grp    = next((g for g in groups if g["name"] == "Service Partner"), None)
+        if grp:
+            group_id = grp["id"]
+    except Exception:
+        pass  # fall back: filter by SP custom field post-fetch
 
     # Status map
-    fields   = _get("ticket_fields")
-    sf       = next((f for f in fields if f["name"] == "status"), None)
     stat_map = {2: "Open", 3: "Pending", 4: "Resolved", 5: "Closed", 6: "Customer Responded"}
-    if sf:
-        for c in sf.get("choices", []):
-            stat_map[c["id"]] = c["value"]
+    try:
+        fields = _get("ticket_fields")
+        sf     = next((f for f in fields if f["name"] == "status"), None)
+        if sf:
+            for c in sf.get("choices", []):
+                stat_map[c["id"]] = c["value"]
+    except Exception:
+        pass
     target_ids = [sid for sid, name in stat_map.items() if name.lower() in TARGET_NAMES]
 
     # Pull tickets
     seen = {}
+    params_base = {"per_page": 100, "include": "tags,stats"}
+    if group_id:
+        params_base["group_id"] = group_id
     for status_id in target_ids:
         for page in range(1, 11):
-            batch = _get("tickets", {
-                "group_id": group_id, "status": status_id,
-                "per_page": 100, "page": page, "include": "tags,stats",
-            })
+            batch = _get("tickets", {**params_base, "status": status_id, "page": page})
             if not batch:
                 break
             for t in batch:
-                seen[t["id"]] = t
+                cf = t.get("custom_fields") or {}
+                # Without group filter, keep only SP tickets (those with SP name populated)
+                if group_id or cf.get("cf_service_partner_name"):
+                    seen[t["id"]] = t
             if len(batch) < 100:
                 break
 
@@ -573,11 +582,4 @@ with tab5:
     )
 
 
-# ââ Footer ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-st.divider()
-st.caption(
-    f"Lifelong Products Â· Service Partner Ops Â· "
-    f"TAT policy: >{TAT_HOURS} hrs = breach Â· "
-    f"Data source: {DOMAIN} Â· "
-    f"Last fetched: {fetched_at}"
-)
+# ââ Footer
