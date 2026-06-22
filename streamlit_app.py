@@ -94,12 +94,15 @@ def fetch_data():
 
     # Pull tickets
     seen = {}
-    params_base = {"per_page": 100, "include": "tags,stats"}
+    params_base = {"per_page": 100}
     if group_id:
         params_base["group_id"] = group_id
     for status_id in target_ids:
         for page in range(1, 11):
-            batch = _get("tickets", {**params_base, "status": status_id, "page": page})
+            try:
+                batch = _get("tickets", {**params_base, "status": status_id, "page": page})
+            except Exception:
+                break
             if not batch:
                 break
             for t in batch:
@@ -578,8 +581,3 @@ with tab5:
         "â¬ Download filtered tickets (CSV)",
         data=csv,
         file_name=f"SP_Tickets_{datetime.now().strftime('%d%b%Y')}.csv",
-        mime="text/csv"
-    )
-
-
-# ââ Footer
